@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="ZNewMeGsNQm9xGBOf0G6ah">
+<head data-page-node-id="LElXkWe6PD5i6Ynp7D2cvs">
+<meta charset="utf-8" data-page-node-id="B4KES52uVMV2TVvrHIZ6AK">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" data-page-node-id="52HGUcFZHB2MjFuZ4laRO0">
+<title>PC 远程控制 · 巴法云</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+         background:#f5f6f8; color:#1c1f26; padding:16px; max-width:480px; margin:0 auto; }
+  h1 { font-size:20px; margin:8px 0 4px; }
+  .sub { color:#6b7280; font-size:13px; margin-bottom:16px; }
+  .card { background:#ffffff; border-radius:14px; padding:16px; margin-bottom:14px;
+          box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; margin-right:8px; }
+  .on { background:#22c55e; } .off { background:#ef4444; } .unk { background:#f59e0b; }
+  .state-txt { font-size:14px; }
+  button { width:100%; border:none; border-radius:14px; padding:18px; font-size:17px;
+           font-weight:600; color:#fff; margin-top:10px; cursor:pointer; }
+  .btn-power { background:linear-gradient(135deg,#22c55e,#16a34a); }
+  .btn-hold  { background:linear-gradient(135deg,#3b82f6,#1d4ed8); }
+  button:active { transform:scale(0.98); }
+  button:disabled { opacity:.4; }
+  input { width:100%; padding:12px; border-radius:10px; border:1px solid #d1d5db;
+          background:#ffffff; color:#1c1f26; font-size:15px; margin-top:6px; }
+  .conn { font-size:13px; padding:6px 0; }
+  .hint { font-size:12px; color:#6b7280; margin-top:8px; line-height:1.6; }
+  .badge { font-size:12px; color:#6b7280; }
+  .lockerr { color:#ef4444; font-size:13px; margin-top:8px; display:none; }
+  #toast { position:fixed; left:50%; bottom:36px; transform:translate(-50%,16px);
+           background:rgba(28,31,38,.94); color:#fff; padding:12px 20px; border-radius:12px;
+           font-size:14px; line-height:1.4; max-width:86vw; text-align:center;
+           opacity:0; transition:opacity .22s ease, transform .22s ease;
+           pointer-events:none; z-index:999; box-shadow:0 6px 20px rgba(0,0,0,.2); }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body data-page-node-id="WvuqrQs66hZDShLHTAUQSe">
+  <div id="lockScreen" class="card" style="margin-top:40px;">
+    <h1 style="margin-bottom:4px;">🔒 PC 远程控制</h1>
+    <div class="sub">请输入访问密码</div>
+    <input id="pwd" type="password" placeholder="访问密码" autocomplete="off">
+    <div class="lockerr" id="lockErr">密码错误，请重试</div>
+    <button class="btn-power" id="unlock" style="margin-top:14px;">进入</button>
+  </div>
+
+  <div id="app" style="display:none;">
+  <h1 data-page-node-id="hXOD229AuHbZLdiKqbIiMC">🖥️ PC 远程控制</h1>
+  <div class="sub" data-page-node-id="aXkenQwbjSZyRCuSs0ltHp">巴法云 MQTT · 免费 · 无需服务器</div>
+
+  <div class="card" data-page-node-id="Dd7IhKItO9qnPNoQCBDxRf">
+    <div class="row" data-page-node-id="VIF0JPSiITKNmtQDlwQrYP">
+      <span class="state-txt" data-page-node-id="rsYoHbfchH6Ps4ESuZvGPl"><span id="espDot" class="dot unk" data-page-node-id="F80bwi37GrseJHj8LHrtc0"></span>控制器（ESP）</span>
+      <span class="badge" id="espRssi" data-page-node-id="SF4zNM7FazzZqgW2aXC6ue">—</span>
+    </div>
+    <div class="row" data-page-node-id="25Y78zFzPfBevVAFvkwfOn">
+      <span class="state-txt" data-page-node-id="RoyqOfWxuG4Y1KeICIqPKa"><span id="pcDot" class="dot unk" data-page-node-id="9nFYpM4MK8IQaMXOdyreBc"></span>电脑状态</span>
+      <span class="badge" id="pcTxt" data-page-node-id="7IrvlGDhyGS0A89PyycraE">未知</span>
+    </div>
+    <div class="conn" id="connTxt" data-page-node-id="zz1uaACG23rXfsIaY9opyK">未连接</div>
+    <a href="#" id="reconf" style="display:none;color:#5b9bd5;font-size:12px;text-decoration:none;">⚙ 更换 UID</a>
+  </div>
+
+  <div class="card" id="uidCard" data-page-node-id="BG6qwHCS2JFol57WeC94rj">
+    <label style="font-size:14px;" data-page-node-id="VGEzeRZfVoDlPSXIUNKF3o">巴法云私钥 UID</label>
+    <input id="uid" placeholder="粘贴你的巴法云用户私钥 UID" autocomplete="off" data-page-node-id="0o4FZeeBLcUhDzCIa8R18O">
+    <button class="btn-power" id="saveUid" style="background:#2c313c;padding:10px;font-size:14px;" data-page-node-id="dg9I2Fa42T0EMiftIPGU6D">保存并连接</button>
+  </div>
+
+  <button class="btn-power" id="btnPower" disabled data-page-node-id="ZnziCZWkO6eqm3Cw9uEGdH">⚡ 电源（睡眠 / 唤醒）</button>
+  <button class="btn-hold"  id="btnHold"  disabled data-page-node-id="Y0nPlgdPYilW0LJRDNDbbb">🔌 强制关机（长按）</button>
+
+  <div class="hint" data-page-node-id="armdCZBMlFxCmuk3tG6DeW">
+    主题约定（与巴法云后台设备名一致）：<br data-page-node-id="EHlg6w26pEGRzuNYBueV5u">
+    · 命令 <b data-page-node-id="RpfYPy1c1PGvwOq5arahbP">Computer006/set</b>：发 <code data-page-node-id="R88WFjJwMir75IMAA3EqNK">toggle</code>=短按切换，<code data-page-node-id="uX809ElB0FRKtOh1p9l6pn">hold</code>=长按强制断电<br data-page-node-id="Mjevd5AjY2KXDnBUJhaRbT">
+    · 状态 <b data-page-node-id="0G2R0JPmN4ytrUsRjGXaof">Computer006</b>：ESP 在线 online,rssi；电脑在线 1/0
+  </div>
+  </div><!-- /#app -->
+
+  <div id="toast"></div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const TOPIC = "Computer006";        // 巴法云后台的设备/主题名
+const TOPIC_CMD  = TOPIC + "/set";   // 手机发命令：Computer006/set
+const TOPIC_STAT = TOPIC;            // ESP 发布 retain 状态
+const TOPIC_PC   = "Computer006pc";   // 路由器发布电脑在线状态（独立主题，避免与 ESP 状态 retain 互相覆盖）
+
+// 固化 UID（混淆编码，运行时还原）：换设备打开无需手动输入
+function _decodeUid() {
+  const enc = "386b6c693e6e396369696838633c38626d3f3c6e3c6a6e396c6e6b386a693e69";
+  const k = 0x5a;
+  let s = "";
+  for (let i = 0; i < enc.length; i += 2) s += String.fromCharCode(parseInt(enc.substr(i, 2), 16) ^ k);
+  return s.split("").reverse().join("");
+}
+const BUILTIN_UID = _decodeUid();
+
+let client = null;
+const $ = id => document.getElementById(id);
+
+// 读取已保存 UID（优先本地覆盖值，否则用固化 UID）
+const saved = localStorage.getItem("bemfa_uid") || "";
+$("uid").value = saved || BUILTIN_UID;
+
+function setConn(txt, color) {
+  $("connTxt").textContent = txt;
+  $("connTxt").style.color = color || "#8a8f98";
+}
+
+function updateEsp(text) {
+  // text: "online,-45" 或 "offline"
+  if (text === "offline" || !text) {
+    $("espDot").className = "dot off";
+    $("espRssi").textContent = "离线";
+  } else {
+    $("espDot").className = "dot on";
+    const parts = text.split(",");
+    $("espRssi").textContent = parts[1] ? "RSSI " + parts[1] : "在线";
+  }
+}
+function updatePc(v) {
+  if (v === "1") { $("pcDot").className = "dot on";  $("pcTxt").textContent = "已开机"; }
+  else if (v === "0") { $("pcDot").className = "dot off"; $("pcTxt").textContent = "已关机/睡眠"; }
+  else { $("pcDot").className = "dot unk"; $("pcTxt").textContent = "未知"; }
+}
+
+function connect(uid) {
+  if (client) { try { client.end(true); } catch(e){} }
+  setConn("连接中…", "#f5a623");
+  client = mqtt.connect("wss://bemfa.com:9504", {
+    path: "/wss",
+    clientId: uid,
+    username: "",   // 巴法云留空
+    password: "",
+    clean: true,
+    reconnectPeriod: 5000
+  });
+
+  client.on("connect", () => {
+    setConn("已连接 ✓", "#3ddc84");
+    $("uidCard").style.display = "none";   // 已保存并连接，默认隐藏配置卡
+    $("reconf").style.display = "inline";  // 提供重新配置入口
+    client.subscribe(TOPIC);             // ESP 状态 + 命令回复（Computer006）
+    client.subscribe(TOPIC_PC);          // 电脑在线状态（Computer006pc）
+    refreshBtns();                       // 统一管理按钮启用/冷却状态
+  });
+  client.on("reconnect", () => setConn("重连中…", "#f5a623"));
+  client.on("error", () => { setConn("连接错误", "#ff5c5c"); refreshBtns(); });
+  client.on("close", () => { setConn("已断开", "#ff5c5c"); refreshBtns(); });
+
+  client.on("message", (topic, payload) => {
+    const msg = payload.toString();
+    if (topic === TOPIC_PC) updatePc(msg);   // Computer006pc → 电脑状态
+    else updateEsp(msg);                      // Computer006 → ESP 状态
+  });
+}
+
+$("saveUid").onclick = () => {
+  const uid = $("uid").value.trim();
+  if (!uid) { alert("请先填入 UID"); return; }
+  localStorage.setItem("bemfa_uid", uid);
+  connect(uid);
+};
+
+// ── 轻提示 toast：点击后立刻给反馈，解决"点了像没点一样" ──
+let _toastTimer = null;
+function toast(msg, ms) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove("show"), ms || 2400);
+}
+
+// ── 防误触：电源类指令发出后进入冷却，期间两个按钮都不可点 ──
+// 依据：Windows 收到电源键事件后需 2~5s 才真正进入睡眠/唤醒，
+//       冷却期覆盖这段"看不出反应"的窗口，避免用户以为没生效而连点。
+const COOLDOWN_POWER_MS = 8000;    // 电源（睡眠/唤醒）
+const COOLDOWN_HOLD_MS  = 10000;   // 强制关机（更危险，冷却更久）
+let cooldownUntil = 0;
+let _cdTimer = null;
+
+function cooldownLeft() {
+  return Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+}
+
+function refreshBtns() {
+  const pb = $("btnPower"), hb = $("btnHold");
+  const left = cooldownLeft();
+  if (left > 0) {
+    pb.disabled = hb.disabled = true;
+    pb.textContent = "⚡ 已发送，冷却 " + left + "s";
+    hb.textContent = "🔌 已发送，冷却 " + left + "s";
+  } else {
+    if (_cdTimer) { clearInterval(_cdTimer); _cdTimer = null; }
+    const ok = !!(client && client.connected);
+    pb.disabled = hb.disabled = !ok;
+    pb.textContent = "⚡ 电源（睡眠 / 唤醒）";
+    hb.textContent = "🔌 强制关机（长按）";
+  }
+}
+
+function startCooldown(ms) {
+  cooldownUntil = Date.now() + ms;
+  if (_cdTimer) clearInterval(_cdTimer);
+  refreshBtns();
+  _cdTimer = setInterval(refreshBtns, 250);
+}
+
+// 冷却中 / 未连接 → 给出明确提示并拦截
+function canSendOrWarn() {
+  const left = cooldownLeft();
+  if (left > 0) { toast("冷却中，请 " + left + " 秒后再试"); return false; }
+  if (!client || !client.connected) { toast("未连接云端，无法发送"); return false; }
+  return true;
+}
+
+$("btnPower").onclick = () => {
+  if (!canSendOrWarn()) return;
+  client.publish(TOPIC_CMD, "toggle");
+  toast("⚡ 已发送：睡眠 / 唤醒（约 8 秒后可再操作）");
+  startCooldown(COOLDOWN_POWER_MS);
+};
+$("btnHold").onclick = () => {
+  if (!canSendOrWarn()) return;
+  if (!confirm("强制关机将直接断电，未保存工作会丢失，确定？")) return;
+  client.publish(TOPIC_CMD, "hold");
+  toast("🔌 已发送：强制关机（约 10 秒后可再操作）");
+  startCooldown(COOLDOWN_HOLD_MS);
+};
+
+// 注意：不再于页面加载时自动连接 MQTT —— 改为通过密码验证后才连接（见 unlockApp），
+// 避免未授权访问者仅打开页面就建立云端连接。解锁后优先已保存 UID，否则用固化 UID。
+
+// 更换 UID：重新显示配置卡
+$("reconf").onclick = (e) => {
+  e.preventDefault();
+  $("uidCard").style.display = "block";
+  $("reconf").style.display = "none";
+  $("uid").focus();
+};
+
+// ── 访问密码（混淆编码，运行时还原）──
+function _decodePwd() {
+  const enc = "6e2a356263636b75283f2d352a";
+  const k = 0x5a;
+  let s = "";
+  for (let i = 0; i < enc.length; i += 2) s += String.fromCharCode(parseInt(enc.substr(i, 2), 16) ^ k);
+  return s.split("").reverse().join("");
+}
+const ACCESS_PWD = _decodePwd();
+
+function unlockApp() {
+  $("lockScreen").style.display = "none";
+  $("app").style.display = "block";
+  // sessionStorage：关闭标签页即失效，比 localStorage 安全
+  sessionStorage.setItem("pc_auth", "1");
+  if (!client) { if (saved) connect(saved); else connect(BUILTIN_UID); }
+}
+
+function checkPwd() {
+  if ($("pwd").value === ACCESS_PWD) {
+    $("lockErr").style.display = "none";
+    unlockApp();
+  } else {
+    $("lockErr").style.display = "block";
+    $("pwd").value = "";
+    $("pwd").focus();
+  }
+}
+
+$("unlock").onclick = checkPwd;
+$("pwd").addEventListener("keydown", e => { if (e.key === "Enter") checkPwd(); });
+
+// 已在本标签页通过验证则直接进入
+if (sessionStorage.getItem("pc_auth") === "1") unlockApp();
+</script>
+</body>
+</html>
