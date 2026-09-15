@@ -74,7 +74,9 @@
   <div class="hint" data-page-node-id="armdCZBMlFxCmuk3tG6DeW">
     主题约定（与巴法云后台设备名一致）：<br data-page-node-id="EHlg6w26pEGRzuNYBueV5u">
     · 命令 <b data-page-node-id="RpfYPy1c1PGvwOq5arahbP">Computer006/set</b>：发 <code data-page-node-id="R88WFjJwMir75IMAA3EqNK">toggle</code>=短按切换，<code data-page-node-id="uX809ElB0FRKtOh1p9l6pn">hold</code>=长按强制断电<br data-page-node-id="Mjevd5AjY2KXDnBUJhaRbT">
-    · 状态 <b data-page-node-id="0G2R0JPmN4ytrUsRjGXaof">Computer006</b>：ESP 在线 online,rssi；电脑在线 1/0
+    · 状态 <b data-page-node-id="0G2R0JPmN4ytrUsRjGXaof">Computer006</b>：ESP 在线 online,rssi<br data-page-node-id="Mjevd5AjY2KXDnBUJhaRbT">
+    · 电脑 <b>Computer006pc</b>：<code>1,&lt;unix秒&gt;</code>=在线心跳（每 30s 一次），<code>0</code>=主动关机<br>
+    　超过 90 秒没有新心跳 → 判定离线（覆盖断电、进程被杀等来不及发 0 的情况）
   </div>
   </div><!-- /#app -->
 
@@ -120,11 +122,53 @@ function updateEsp(text) {
     $("espRssi").textContent = parts[1] ? "RSSI " + parts[1] : "在线";
   }
 }
+// ── 电脑在线：心跳新鲜度判定 ──
+// 巴法云在 WebSocket 连接断开时不会补发 MQTT 遗嘱，进程被强杀/断电后
+// 主题上会残留 retain 的 "1"，只靠 0/1 判断会误报"在线"。
+// 对策：监控脚本每 30s 重发一次带时间戳的心跳信标 "1,<unix秒>"；
+//       这里用时间戳算年龄，超过阈值没收到新心跳就判离线。
+const PC_HEARTBEAT_TIMEOUT_MS = 90000;   // 信标间隔 30s，容忍丢 2~3 个
+let pcLastFresh = 0;      // 最近一次"新鲜"心跳的本地时间(ms)
+let pcEverSeen  = false;  // 是否收到过任何在线证据（哪怕是过期的）
+let pcHardOff   = false;  // 是否收到过明确的 "0"
+
 function updatePc(v) {
-  if (v === "1") { $("pcDot").className = "dot on";  $("pcTxt").textContent = "已开机"; }
-  else if (v === "0") { $("pcDot").className = "dot off"; $("pcTxt").textContent = "已关机/睡眠"; }
-  else { $("pcDot").className = "dot unk"; $("pcTxt").textContent = "未知"; }
+  const s = String(v == null ? "" : v);
+  if (s === "0") {            // 电脑主动上报关机（优雅退出）
+    pcHardOff = true; pcLastFresh = 0; pcEverSeen = false; renderPc(); return;
+  }
+  pcHardOff = false;
+  if (s === "1" || s.indexOf("1,") === 0) {
+    pcEverSeen = true;
+    const parts = s.split(",");
+    if (parts.length > 1) {
+      const ts = parseInt(parts[1], 10) * 1000;
+      const age = Date.now() - ts;
+      // 过期信标（电脑没来得及说 0 就挂了）→ 不刷新新鲜度，判离线
+      if (!isNaN(ts) && age >= 0 && age < PC_HEARTBEAT_TIMEOUT_MS) pcLastFresh = Date.now();
+    } else {
+      pcLastFresh = Date.now();   // 兼容旧格式：不带时间戳的 "1"
+    }
+  }
+  renderPc();
 }
+
+function renderPc() {
+  const d = $("pcDot"), t = $("pcTxt");
+  if (pcHardOff) { d.className = "dot off"; t.textContent = "已关机 / 睡眠"; return; }
+  if (pcLastFresh) {
+    const age = Date.now() - pcLastFresh;
+    if (age < PC_HEARTBEAT_TIMEOUT_MS) {
+      d.className = "dot on";
+      t.textContent = "已开机 · " + Math.round(age / 1000) + "s 前心跳";
+      return;
+    }
+    d.className = "dot off"; t.textContent = "心跳超时 · 可能已关机"; return;
+  }
+  if (pcEverSeen) { d.className = "dot off"; t.textContent = "心跳超时 · 可能已关机"; return; }
+  d.className = "dot unk"; t.textContent = "未知";
+}
+setInterval(renderPc, 1000);   // 即使不再来消息，状态也会随时间翻转
 
 function connect(uid) {
   if (client) { try { client.end(true); } catch(e){} }
