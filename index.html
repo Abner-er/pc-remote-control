@@ -158,7 +158,19 @@ function updatePc(v) {
       pcHadHistory = true;
       // 只有时间戳变大才算新信标。断线重连时 broker 会把 retain 的旧信标再推一次，
       // ts 不变 → 不刷新新鲜度 → 不会把死掉的电脑误判成在线。
-      if (ts > pcLastTs) { pcLastTs = ts; pcLastFresh = Date.now(); }
+      if (ts > pcLastTs) {
+        pcLastTs = ts;
+        // 二道防线：broker 在 WS 一连上就会立刻推送 retain 的旧信标（实测 <0.1s），
+        // 全新打开页面时 pcLastTs 从 0 开始，旧信标能穿过上面的判重，
+        // 导致"电脑关机后每次打开页面都显示在线 35 秒"。
+        // 兜底：信标声称的发出时刻距今超过 90s → 是残留 retain，不当在线
+        //（信标 10s 一次，活信标的时间戳年龄只有几秒；90s 容忍两端时钟偏差）。
+        if (Date.now() - ts * 1000 > 90000) {
+          pcLastFresh = 0;          // 交给 renderPc 显示"心跳超时 · 可能已关机"
+        } else {
+          pcLastFresh = Date.now();
+        }
+      }
     }
   }
   renderPc();
