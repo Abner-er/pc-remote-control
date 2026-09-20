@@ -3,6 +3,9 @@
 <head data-page-node-id="LElXkWe6PD5i6Ynp7D2cvs">
 <meta charset="utf-8" data-page-node-id="B4KES52uVMV2TVvrHIZ6AK">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" data-page-node-id="52HGUcFZHB2MjFuZ4laRO0">
+  <meta name="theme-color" content="#f5f6f8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PC 控制">
 <title>PC 远程控制 · 巴法云</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -34,15 +37,27 @@
            opacity:0; transition:opacity .22s ease, transform .22s ease;
            pointer-events:none; z-index:999; box-shadow:0 6px 20px rgba(0,0,0,.2); }
   #toast.show { opacity:1; transform:translate(-50%,0); }
+  .remember { display:flex; align-items:center; gap:8px; font-size:13px;
+              color:#6b7280; margin-top:10px; cursor:pointer; }
+  .remember input { width:auto; margin:0; }
+  .utils { display:flex; gap:20px; justify-content:center; margin-top:4px; }
+  .utils a { color:#6b7280; font-size:12px; text-decoration:none; }
+  .sr { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
 </style>
 </head>
 <body data-page-node-id="WvuqrQs66hZDShLHTAUQSe">
   <div id="lockScreen" class="card" style="margin-top:40px;">
     <h1 style="margin-bottom:4px;">🔒 PC 远程控制</h1>
     <div class="sub">请输入访问密码</div>
-    <input id="pwd" type="password" placeholder="访问密码" autocomplete="off">
-    <div class="lockerr" id="lockErr">密码错误，请重试</div>
-    <button class="btn-power" id="unlock" style="margin-top:14px;">进入</button>
+    <form id="lockForm" autocomplete="on">
+      <!-- 隐藏的用户名字段：让密码管理器认出这是一组凭据，从而提供保存/自动填充 -->
+      <input id="user" name="username" type="text" value="owner" autocomplete="username"
+             readonly onfocus="this.blur()" class="sr">
+      <input id="pwd" name="password" type="password" placeholder="访问密码" autocomplete="current-password">
+      <label class="remember"><input id="remember" type="checkbox" checked> 记住此设备 30 天</label>
+      <div class="lockerr" id="lockErr">密码错误，请重试</div>
+      <button class="btn-power" id="unlock" type="submit" style="margin-top:14px;">进入</button>
+    </form>
   </div>
 
   <div id="app" style="display:none;">
@@ -75,8 +90,14 @@
     主题约定（与巴法云后台设备名一致）：<br data-page-node-id="EHlg6w26pEGRzuNYBueV5u">
     · 命令 <b data-page-node-id="RpfYPy1c1PGvwOq5arahbP">Computer006/set</b>：发 <code data-page-node-id="R88WFjJwMir75IMAA3EqNK">toggle</code>=短按切换，<code data-page-node-id="uX809ElB0FRKtOh1p9l6pn">hold</code>=长按强制断电<br data-page-node-id="Mjevd5AjY2KXDnBUJhaRbT">
     · 状态 <b data-page-node-id="0G2R0JPmN4ytrUsRjGXaof">Computer006</b>：ESP 在线 online,rssi<br data-page-node-id="Mjevd5AjY2KXDnBUJhaRbT">
-    · 电脑 <b>Computer006pc</b>：<code>1,&lt;unix秒&gt;</code>=在线心跳（每 30s 一次），<code>0</code>=主动关机<br>
-    　超过 90 秒没有新心跳 → 判定离线（覆盖断电、进程被杀等来不及发 0 的情况）
+    · 电脑 <b>Computer006pc</b>：<code>1,&lt;unix秒&gt;</code>=在线心跳（每 10s 一次），<code>0</code>=主动关机<br>
+    　超过 35 秒没有新心跳 → 判定离线（覆盖断电、进程被杀等来不及发 0 的情况）<br>
+    　时间戳只用于判重，新鲜度按"本机收到的时刻"计算，不依赖两端时钟一致
+  </div>
+
+  <div class="utils">
+    <a href="#" id="makeLink">🔑 免密书签链接</a>
+    <a href="#" id="lockNow">🔒 立即锁定</a>
   </div>
   </div><!-- /#app -->
 
@@ -127,27 +148,27 @@ function updateEsp(text) {
 // 主题上会残留 retain 的 "1"，只靠 0/1 判断会误报"在线"。
 // 对策：监控脚本每 30s 重发一次带时间戳的心跳信标 "1,<unix秒>"；
 //       这里用时间戳算年龄，超过阈值没收到新心跳就判离线。
-const PC_HEARTBEAT_TIMEOUT_MS = 90000;   // 信标间隔 30s，容忍丢 2~3 个
-let pcLastFresh = 0;      // 最近一次"新鲜"心跳的本地时间(ms)
-let pcEverSeen  = false;  // 是否收到过任何在线证据（哪怕是过期的）
-let pcHardOff   = false;  // 是否收到过明确的 "0"
+const PC_HEARTBEAT_TIMEOUT_MS = 35000;   // 信标 10s，容忍连续丢 3 个
+let pcLastTs     = 0;   // 见过的最新信标时间戳（unix 秒），只用于判重
+let pcLastFresh  = 0;   // 该信标到达本机的时刻(ms)
+let pcHadHistory = false;
+let pcHardOff    = false;   // 收到过明确的 "0"
 
 function updatePc(v) {
   const s = String(v == null ? "" : v);
-  if (s === "0") {            // 电脑主动上报关机（优雅退出）
-    pcHardOff = true; pcLastFresh = 0; pcEverSeen = false; renderPc(); return;
+  if (s === "0") {                       // 电脑主动上报关机（优雅退出）
+    pcHardOff = true; pcLastFresh = 0; pcLastTs = 0; renderPc(); return;
   }
   pcHardOff = false;
-  if (s === "1" || s.indexOf("1,") === 0) {
-    pcEverSeen = true;
-    const parts = s.split(",");
-    if (parts.length > 1) {
-      const ts = parseInt(parts[1], 10) * 1000;
-      const age = Date.now() - ts;
-      // 过期信标（电脑没来得及说 0 就挂了）→ 不刷新新鲜度，判离线
-      if (!isNaN(ts) && age >= 0 && age < PC_HEARTBEAT_TIMEOUT_MS) pcLastFresh = Date.now();
-    } else {
-      pcLastFresh = Date.now();   // 兼容旧格式：不带时间戳的 "1"
+  if (s === "1") {                       // 旧格式：无时间戳，按到达时间刷新
+    pcHadHistory = true; pcLastFresh = Date.now(); pcLastTs = 0;
+  } else if (s.indexOf("1,") === 0) {
+    const ts = parseInt(s.slice(2), 10);
+    if (!isNaN(ts)) {
+      pcHadHistory = true;
+      // 只有时间戳变大才算新信标。断线重连时 broker 会把 retain 的旧信标再推一次，
+      // ts 不变 → 不刷新新鲜度 → 不会把死掉的电脑误判成在线。
+      if (ts > pcLastTs) { pcLastTs = ts; pcLastFresh = Date.now(); }
     }
   }
   renderPc();
@@ -157,15 +178,15 @@ function renderPc() {
   const d = $("pcDot"), t = $("pcTxt");
   if (pcHardOff) { d.className = "dot off"; t.textContent = "已关机 / 睡眠"; return; }
   if (pcLastFresh) {
-    const age = Date.now() - pcLastFresh;
-    if (age < PC_HEARTBEAT_TIMEOUT_MS) {
+    const ageS = Math.round((Date.now() - pcLastFresh) / 1000);
+    if (Date.now() - pcLastFresh < PC_HEARTBEAT_TIMEOUT_MS) {
       d.className = "dot on";
-      t.textContent = "已开机 · " + Math.round(age / 1000) + "s 前心跳";
+      t.textContent = "已开机 · " + ageS + "s 前心跳";
       return;
     }
-    d.className = "dot off"; t.textContent = "心跳超时 · 可能已关机"; return;
+    d.className = "dot off"; t.textContent = "心跳超时 " + ageS + "s · 可能已关机"; return;
   }
-  if (pcEverSeen) { d.className = "dot off"; t.textContent = "心跳超时 · 可能已关机"; return; }
+  if (pcHadHistory) { d.className = "dot off"; t.textContent = "心跳超时 · 可能已关机"; return; }
   d.className = "dot unk"; t.textContent = "未知";
 }
 setInterval(renderPc, 1000);   // 即使不再来消息，状态也会随时间翻转
@@ -286,7 +307,11 @@ $("reconf").onclick = (e) => {
   $("uid").focus();
 };
 
-// ── 访问密码（混淆编码，运行时还原）──
+// ── 访问控制（静态托管，没有服务端）──
+// 先说清楚边界：密码写在前端代码里，只能挡住"随手点开链接的人"，挡不住"会按
+// F12 看源码的人"。真要防懂行的人，得在页面前面套一层服务端鉴权（Cloudflare
+// Access / Nginx Basic Auth / 云函数），那不是改 HTML 能解决的。
+// 在这个前提下，下面的目标是：你自己一次都不用再输密码。
 function _decodePwd() {
   const enc = "6e2a356263636b75283f2d352a";
   const k = 0x5a;
@@ -296,30 +321,83 @@ function _decodePwd() {
 }
 const ACCESS_PWD = _decodePwd();
 
+// 派生令牌：localStorage / URL 里只放它，不放明文密码
+function _token(p) {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < p.length; i++) {
+    h1 = ((h1 ^ p.charCodeAt(i)) * 16777619) >>> 0;
+    h2 = ((h2 + p.charCodeAt(i) * (i + 7)) * 2654435761) >>> 0;
+  }
+  return "pcctl-" + h1.toString(36) + "-" + h2.toString(36);
+}
+const ACCESS_TOKEN = _token(ACCESS_PWD);
+const REMEMBER_DAYS = 30;
+
+function grantSession(persist) {
+  try {
+    if (persist) {
+      localStorage.setItem("pc_auth_token",
+        JSON.stringify({ t: ACCESS_TOKEN, exp: Date.now() + REMEMBER_DAYS * 86400000 }));
+    }
+    sessionStorage.setItem("pc_auth", "1");
+  } catch (e) {}
+}
+
+function trustedToken() {
+  try {
+    const o = JSON.parse(localStorage.getItem("pc_auth_token") || "null");
+    return !!(o && o.t === ACCESS_TOKEN && (!o.exp || o.exp > Date.now()));
+  } catch (e) { return false; }
+}
+
 function unlockApp() {
   $("lockScreen").style.display = "none";
   $("app").style.display = "block";
-  // sessionStorage：关闭标签页即失效，比 localStorage 安全
-  sessionStorage.setItem("pc_auth", "1");
+  try { sessionStorage.setItem("pc_auth", "1"); } catch (e) {}
   if (!client) { if (saved) connect(saved); else connect(BUILTIN_UID); }
 }
 
-function checkPwd() {
+// 三条自动放行路径：URL 带免密令牌 / 本机记住过 / 本标签页已验证过
+(function autoUnlock() {
+  const k = new URLSearchParams(location.search).get("k");
+  if (k && k === ACCESS_TOKEN) {
+    grantSession(true);
+    history.replaceState(null, "", location.pathname);   // 抹掉地址栏里的令牌
+    unlockApp();
+    return;
+  }
+  if (trustedToken() || sessionStorage.getItem("pc_auth") === "1") unlockApp();
+})();
+
+$("lockForm").addEventListener("submit", (e) => {
+  e.preventDefault();
   if ($("pwd").value === ACCESS_PWD) {
     $("lockErr").style.display = "none";
+    grantSession($("remember").checked);
+    $("pwd").value = "";
     unlockApp();
   } else {
     $("lockErr").style.display = "block";
     $("pwd").value = "";
     $("pwd").focus();
   }
-}
+});
 
-$("unlock").onclick = checkPwd;
-$("pwd").addEventListener("keydown", e => { if (e.key === "Enter") checkPwd(); });
+// 生成一次性用到的免密链接：存成书签 / 添加到主屏幕，之后点开直接进
+$("makeLink").onclick = (e) => {
+  e.preventDefault();
+  const url = location.origin + location.pathname + "?k=" + ACCESS_TOKEN;
+  const fallback = () => prompt("存成书签，打开即免密码进入：", url);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => toast("链接已复制，存成书签即可"), fallback);
+  } else { fallback(); }
+};
 
-// 已在本标签页通过验证则直接进入
-if (sessionStorage.getItem("pc_auth") === "1") unlockApp();
+$("lockNow").onclick = (e) => {
+  e.preventDefault();
+  try { localStorage.removeItem("pc_auth_token"); sessionStorage.removeItem("pc_auth"); } catch (x) {}
+  location.reload();
+};
 </script>
 </body>
 </html>
